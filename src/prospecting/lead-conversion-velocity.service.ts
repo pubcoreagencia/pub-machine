@@ -1,143 +1,193 @@
-import { Lead } from './types';
+import { Injectable, Logger } from '@nestjs/common';
+import { LeadScoringService } from './lead-scoring.service';
+import { LeadIntentSignalsService } from './lead-intent-signals.service';
+import { LeadEnrichmentService } from './lead-enrichment.service';
 
-interface VelocitySignal {
-  weight: number;
-  detector: (lead: Lead) => boolean;
-  reason: string;
-}
-
-interface VelocityReport {
+export interface LeadTouchEvent {
   leadId: string;
-  score: number;
-  tier: 'ice_cold' | 'warm' | 'hot' | 'on_fire';
-  signals: string[];
-  estimatedTimeToCloseHours: number;
-  priorityRank: number;
-  computedAt: string;
+  channel: 'email' | 'whatsapp' | 'phone' | 'web' | 'social';
+  direction: 'inbound' | 'outbound';
+  timestamp: number;
+  responseMs?: number;
+  sentiment?: number; // -1..1
 }
 
+export interface VelocityReport {
+  leadId: string;
+  velocityScore: number; // 0..100
+  stage: 'cold' | 'warm' | 'hot' | 'blazing';
+  predictedConversionHours: number;
+  recommendedNextAction: string;
+  signals: {
+    touchpoints: number;
+    avgResponseTimeMs: number;
+    inboundRatio: number;
+    sentimentAvg: number;
+    intentScore: number;
+    enrichmentScore: number;
+  };
+  computedAt: number;
+}
+
+@Injectable()
 export class LeadConversionVelocityService {
-  private static readonly ICE_COLD_THRESHOLD = 25;
-  private static readonly WARM_THRESHOLD = 50;
-  private static readonly HOT_THRESHOLD = 75;
+  private readonly logger = new Logger(LeadConversionVelocityService.name);
+  private readonly events: Map<string, LeadTouchEvent[]> = new Map();
 
-  private readonly signals: VelocitySignal[] = [
-    {
-      weight: 20,
-      detector: (l) => l.recentDemoRequest === true,
-      reason: 'recent_demo_requested',
-    },
-    {
-      weight: 18,
-      detector: (l) => l.visitedPricingPageLast24h === true,
-      reason: 'pricing_page_visit_24h',
-    },
-    {
-      weight: 15,
-      detector: (l) => typeof l.emailOpenRate === 'number' && l.emailOpenRate >= 0.6,
-      reason: 'high_email_engagement',
-    },
-    {
-      weight: 12,
-      detector: (l) => l.repliedToOutreach === true,
-      reason: 'positive_reply_received',
-    },
-    {
-      weight: 10,
-      detector: (l) => typeof l.employeeCount === 'number' && l.employeeCount >= 50 && l.employeeCount <= 500,
-      reason: 'sweet_spot_company_size',
-    },
-    {
-      weight: 10,
-      detector: (l) => typeof l.budgetConfirmed === 'boolean' && l.budgetConfirmed === true,
-      reason: 'budget_already_confirmed',
-    },
-    {
-      weight: 8,
-      detector: (l) => typeof l.decisionMakerRole === 'string' && /c[eo]o|founder|director|head|vp/i.test(l.decisionMakerRole),
-      reason: 'decision_maker_identified',
-    },
-    {
-      weight: 7,
-      detector: (l) => typeof l.competitorMentions === 'number' && l.competitorMentions >= 2,
-      reason: 'evaluating_competitors',
-    },
-    {
-      weight: 5,
-      detector: (l) => l.referralPartner != null && l.referralPartner !== '',
-      reason: 'referred_lead',
-    },
-    {
-      weight: -15,
-      detector: (l) => l.unsubscribed === true,
-      reason: 'unsubscribed_penalty',
-    },
-    {
-      weight: -10,
-      detector: (l) => typeof l.lastContactDaysAgo === 'number' && l.lastContactDaysAgo > 60,
-      reason: 'cold_recency_penalty',
-    },
-  ];
+  // weights (sum = 1.0)
+  private readonly W = {
+    responseTime: 0.2,
+    inbound: 0.2,
+    sentiment: 0.15,
+    frequency: 0.15,
+    intent: 0.2,
+    enrichment: 0.1,
+  };
 
-  public analyze(lead: Lead): VelocityReport {
-    if (!lead || !lead.id) {
-      throw new Error('LeadConversionVelocityService: invalid lead payload');
-    }
+  constructor(
+    private readonly scoring: LeadScoringService,
+    private readonly intent: LeadIntentSignalsService,
+    private readonly enrichment: LeadEnrichmentService,
+  ) {}
 
-    const matchedSignals: string[] = [];
-    let rawScore = 0;
+  track(event: LeadTouchEvent): void {
+    const arr = this.events.get(event.leadId) ?? [];
+    arr.push(event);
+    this.events.set(event.leadId, arr);
+    this.logger.debug(`touch tracked lead=${event.leadId} channel=${event.channel} dir=${event.direction}`);
+  }
 
-    for (const signal of this.signals) {
-      try {
-        if (signal.detector(lead)) {
-          rawScore += signal.weight;
-          matchedSignals.push(signal.reason);
-        }
-      } catch {
-        continue;
-      }
-    }
+  trackBatch(events: LeadTouchEvent[]): number {
+    let n = 0;
+    for (const e of events) { this.track(e); n++; }
+    return n;
+  }
 
-    const score = Math.max(0, Math.min(100, rawScore));
-    const tier = this.classifyTier(score);
-    const estimatedTimeToCloseHours = this.estimateTimeToClose(score, matchedSignals.length);
+  async computeVelocity(leadId: string): Promise<VelocityReport> {
+    const evs = this.events.get(leadId) ?? [];
+    const touchpoints = evs.length;
+
+    const responseTimes = evs.filter(e => typeof e.responseMs === 'number').map(e => e.responseMs!);
+    const avgResponseTimeMs = responseTimes.length
+      ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
+      : Number.POSITIVE_INFINITY;
+
+    const inboundCount = evs.filter(e => e.direction === 'inbound').length;
+    const inboundRatio = touchpoints ? inboundCount / touchpoints : 0;
+
+    const sentiments = evs.filter(e => typeof e.sentiment === 'number').map(e => e.sentiment!);
+    const sentimentAvg = sentiments.length
+      ? sentiments.reduce((a, b) => a + b, 0) / sentiments.length
+      : 0;
+
+    // sub-scores 0..100
+    const responseScore = this.scoreResponseTime(avgResponseTimeMs);
+    const inboundScore = clamp(inboundRatio * 100, 0, 100);
+    const sentimentScore = clamp((sentimentAvg + 1) * 50, 0, 100);
+    const frequencyScore = this.scoreFrequency(touchpoints);
+
+    const intentScore = await this.intent.getIntentScore(leadId).catch(() => 0);
+    const enrichmentScore = await this.enrichment.getEnrichmentScore(leadId).catch(() => 0);
+
+    const velocityScore = clamp(
+      responseScore * this.W.responseTime +
+      inboundScore * this.W.inbound +
+      sentimentScore * this.W.sentiment +
+      frequencyScore * this.W.frequency +
+      intentScore * this.W.intent +
+      enrichmentScore * this.W.enrichment,
+      0, 100,
+    );
+
+    const stage = this.classifyStage(velocityScore, avgResponseTimeMs, inboundRatio);
+    const predictedConversionHours = this.predictHours(velocityScore, touchpoints, avgResponseTimeMs);
+    const recommendedNextAction = this.recommend(stage, inboundRatio, sentimentAvg);
 
     return {
-      leadId: lead.id,
-      score,
-      tier,
-      signals: matchedSignals,
-      estimatedTimeToCloseHours,
-      priorityRank: this.computePriorityRank(score, estimatedTimeToCloseHours),
-      computedAt: new Date().toISOString(),
+      leadId,
+      velocityScore: round(velocityScore, 2),
+      stage,
+      predictedConversionHours: round(predictedConversionHours, 1),
+      recommendedNextAction,
+      signals: {
+        touchpoints,
+        avgResponseTimeMs: Number.isFinite(avgResponseTimeMs) ? Math.round(avgResponseTimeMs) : -1,
+        inboundRatio: round(inboundRatio, 3),
+        sentimentAvg: round(sentimentAvg, 3),
+        intentScore: round(intentScore, 2),
+        enrichmentScore: round(enrichmentScore, 2),
+      },
+      computedAt: Date.now(),
     };
   }
 
-  public analyzeBatch(leads: Lead[]): VelocityReport[] {
-    const reports = leads.map((lead) => this.analyze(lead));
-    return reports.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.estimatedTimeToCloseHours - b.estimatedTimeToCloseHours;
-    });
+  async computeBatch(leadIds: string[]): Promise<VelocityReport[]> {
+    return Promise.all(leadIds.map(id => this.computeVelocity(id)));
   }
 
-  private classifyTier(score: number): VelocityReport['tier'] {
-    if (score >= LeadConversionVelocityService.HOT_THRESHOLD) return 'on_fire';
-    if (score >= LeadConversionVelocityService.WARM_THRESHOLD) return 'hot';
-    if (score >= LeadConversionVelocityService.ICE_COLD_THRESHOLD) return 'warm';
-    return 'ice_cold';
+  async rankHotLeads(leadIds: string[], limit = 20): Promise<VelocityReport[]> {
+    const reports = await this.computeBatch(leadIds);
+    return reports.sort((a, b) => b.velocityScore - a.velocityScore).slice(0, limit);
   }
 
-  private estimateTimeToClose(score: number, signalCount: number): number {
-    const baseHours = 720 - score * 6;
-    const signalBoost = Math.min(signalCount, 5) * 24;
-    return Math.max(24, baseHours - signalBoost);
+  async syncWithScoring(leadId: string): Promise<{ velocity: VelocityReport; score: number }> {
+    const velocity = await this.computeVelocity(leadId);
+    const base = await this.scoring.computeScore(leadId).catch(() => 0);
+    const blended = clamp(base * 0.6 + velocity.velocityScore * 0.4, 0, 100);
+    await this.scoring.upsertScore(leadId, blended).catch(() => undefined);
+    return { velocity, score: blended };
   }
 
-  private computePriorityRank(score: number, etaHours: number): number {
-    const normalizedEta = Math.min(etaHours / 720, 1);
-    return Number((score * 0.7 + (1 - normalizedEta) * 100 * 0.3).toFixed(2));
+  private scoreResponseTime(ms: number): number {
+    if (!Number.isFinite(ms)) return 20;
+    if (ms <= 5 * 60_000) return 100;          // <= 5min
+    if (ms <= 30 * 60_000) return 85;         // <= 30min
+    if (ms <= 2 * 3600_000) return 70;        // <= 2h
+    if (ms <= 24 * 3600_000) return 50;       // <= 1d
+    if (ms <= 3 * 86400_000) return 30;       // <= 3d
+    return 10;
+  }
+
+  private scoreFrequency(touchpoints: number): number {
+    if (touchpoints <= 0) return 0;
+    if (touchpoints >= 15) return 100;
+    if (touchpoints >= 8) return 80;
+    if (touchpoints >= 4) return 60;
+    if (touchpoints >= 2) return 40;
+    return 20;
+  }
+
+  private classifyStage(score: number, avgMs: number, inboundRatio: number): VelocityReport['stage'] {
+    if (score >= 80 && inboundRatio >= 0.5) return 'blazing';
+    if (score >= 65) return 'hot';
+    if (score >= 40) return 'warm';
+    return 'cold';
+  }
+
+  private predictHours(score: number, touchpoints: number, avgMs: number): number {
+    const base = Math.max(1, 168 * Math.pow(1 - score / 100, 1.6)); // up to 7 days
+    const touchBoost = touchpoints > 5 ? 0.75 : touchpoints > 2 ? 0.9 : 1;
+    const respBoost = Number.isFinite(avgMs) && avgMs < 30 * 60_000 ? 0.8 : 1;
+    return base * touchBoost * respBoost;
+  }
+
+  private recommend(stage: VelocityReport['stage'], inboundRatio: number, sentimentAvg: number): string {
+    if (stage === 'blazing') return 'Enviar proposta comercial personalizada em < 1h e abrir WhatsApp direto.';
+    if (stage === 'hot') return inboundRatio > 0.4
+      ? 'Agendar call de descoberta ainda hoje; preparar caso de uso similar.'
+      : 'Disparar sequência multicanal (email + whatsapp) com oferta tempo-limitada.';
+    if (stage === 'warm') return sentimentAvg < -0.1
+      ? 'Reabrir conversa com abordagem consultiva e prova social.'
+      : 'Nutrir com conteúdo de autoridade e remarketing por 7 dias.';
+    return 'Manter em fluxo de nutrição automático; reavaliar em 14 dias.';
   }
 }
 
-export default LeadConversionVelocityService;
+function clamp(n: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, n));
+}
+
+function round(n: number, decimals: number): number {
+    const f = Math.pow(10, decimals);
+    return Math.round(n * f) / f;
+}
