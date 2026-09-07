@@ -1,219 +1,229 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LeadScoringService } from './lead-scoring.service';
-import { LeadEnrichmentService } from './lead-enrichment.service';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+
+/**
+ * Sinais de intenção capturados a partir de múltiplos canais.
+ * Permite normalização e enriquecimento antes do scoring do lead.
+ */
+export type IntentChannel =
+  | 'email_open'
+  | 'email_click'
+  | 'website_visit'
+  | 'pricing_page_view'
+  | 'demo_request'
+  | 'content_download'
+  | 'webinar_attendance'
+  | 'linkedin_engagement'
+  | 'competitor_mention'
+  | 'funding_announcement'
+  | 'hiring_signal';
 
 export interface IntentSignal {
-  id: string;
   leadId: string;
-  type: 'pricing_visit' | 'demo_request' | 'docs_read' | 'competitor_switch' | 'funding_event' | 'hiring_spike' | 'webinar_attend' | 'github_star' | 'review_site_mention' | 'linkedin_engagement';
-  source: string;
-  weight: number;
-  rawPayload: Record<string, unknown>;
-  detectedAt: Date;
+  channel: IntentChannel;
+  weight: number; // 0..1 peso bruto do sinal
+  occurredAt: Date;
+  metadata?: Record<string, unknown>;
 }
 
-export interface IntentSignalInput {
+export interface IntentProfile {
   leadId: string;
-  type: IntentSignal['type'];
-  source: string;
-  rawPayload?: Record<string, unknown>;
-}
-
-export interface LeadIntentProfile {
-  leadId: string;
-  totalScore: number;
-  signals: IntentSignal[];
-  topSignalType: IntentSignal['type'] | null;
-  urgencyLevel: 'low' | 'medium' | 'high' | 'critical';
-  recommendedAction: string;
-  decayAdjustedScore: number;
+  score: number; // 0..100
   lastSignalAt: Date | null;
+  topChannels: IntentChannel[];
+  signalCount: number;
+  decayFactor: number; // 0..1 (1 = sinais frescos)
+  computedAt: Date;
 }
 
-const SIGNAL_WEIGHTS: Record<IntentSignal['type'], number> = {
-  pricing_visit: 25,
-  demo_request: 35,
-  docs_read: 10,
-  competitor_switch: 40,
-  funding_event: 30,
-  hiring_spike: 15,
-  webinar_attend: 20,
-  github_star: 8,
-  review_site_mention: 12,
-  linkedin_engagement: 5,
+/**
+ * Pesos canônicos por canal. Centraliza o tuning do produto.
+ */
+const CHANNEL_WEIGHTS: Record<IntentChannel, number> = {
+  demo_request: 1.0,
+  pricing_page_view: 0.9,
+  competitor_mention: 0.85,
+  funding_announcement: 0.8,
+  email_click: 0.6,
+  website_visit: 0.45,
+  content_download: 0.55,
+  webinar_attendance: 0.5,
+  linkedin_engagement: 0.35,
+  hiring_signal: 0.5,
+  email_open: 0.2,
 };
 
-const SIGNAL_DECAY_HOURS: Record<IntentSignal['type'], number> = {
-  pricing_visit: 72,
-  demo_request: 48,
-  docs_read: 168,
-  competitor_switch: 336,
-  funding_event: 720,
-  hiring_spike: 504,
-  webinar_attend: 240,
-  github_star: 720,
-  review_site_mention: 336,
+/**
+ * Half-life em horas: quanto maior, mais lento o decay.
+ * Sinais de funil baixo decaem mais rápido.
+ */
+const CHANNEL_HALF_LIFE_HOURS: Partial<Record<IntentChannel, number>> = {
+  demo_request: 168, // 7 dias
+  pricing_page_view: 96,
+  competitor_mention: 240, // 10 dias
+  funding_announcement: 720, // 30 dias
+  email_click: 72,
+  website_visit: 24,
+  content_download: 120,
+  webinar_attendance: 168,
   linkedin_engagement: 168,
+  hiring_signal: 336,
+  email_open: 48,
 };
 
+/**
+ * LeadIntentSignalsService
+ *
+ * Agrega sinais cross-channel com decay temporal para produzir um perfil
+ * de intenção consolidado por lead. Emite eventos para que outros
+ * serviços (scoring, priorização, orquestração de cadências) reajam.
+ */
 @Injectable()
 export class LeadIntentSignalsService {
   private readonly logger = new Logger(LeadIntentSignalsService.name);
-  private readonly signals = new Map<string, IntentSignal[]>();
-  private readonly MAX_SIGNALS_PER_LEAD = 200;
 
-  constructor(
-    private readonly leadScoringService: LeadScoringService,
-    private readonly leadEnrichmentService: LeadEnrichmentService,
-  ) {}
+  /** Buffer em memória por leadId; em produção plugar Redis/Postgres. */
+  private readonly signalsByLead = new Map<string, IntentSignal[]>();
+  private readonly profileCache = new Map<string, IntentProfile>();
 
-  async captureSignal(input: IntentSignalInput): Promise<IntentSignal> {
-    if (!input.leadId || !input.type || !input.source) {
-      throw new Error('leadId, type and source are required to capture an intent signal');
-    }
+  constructor(private readonly emitter: EventEmitter2) {}
 
-    const weight = SIGNAL_WEIGHTS[input.type];
-    if (weight === undefined) {
-      throw new Error(`Unknown intent signal type: ${input.type}`);
-    }
-
-    const signal: IntentSignal = {
-      id: this.generateId(),
-      leadId: input.leadId,
-      type: input.type,
-      source: input.source,
-      weight,
-      rawPayload: input.rawPayload ?? {},
-      detectedAt: new Date(),
-    };
-
-    const list = this.signals.get(input.leadId) ?? [];
+  /**
+   * Registra um sinal e re-computa o perfil do lead.
+   */
+  async capture(signal: IntentSignal): Promise<IntentProfile> {
+    const list = this.signalsByLead.get(signal.leadId) ?? [];
     list.push(signal);
+    this.signalsByLead.set(signal.leadId, list);
 
-    if (list.length > this.MAX_SIGNALS_PER_LEAD) {
-      list.splice(0, list.length - this.MAX_SIGNALS_PER_LEAD);
-    }
+    const profile = this.computeProfile(signal.leadId);
+    this.profileCache.set(signal.leadId, profile);
 
-    this.signals.set(input.leadId, list);
-    this.logger.log(`Captured intent signal ${signal.type} (weight=${weight}) for lead ${signal.leadId}`);
-
-    await this.leadScoringService.recalculateFromSignals?.(input.leadId, this.buildProfile(input.leadId));
-    await this.leadEnrichmentService.touchLead?.(input.leadId, `intent:${signal.type}`);
-
-    return signal;
+    this.emitter.emit('intent.profile.updated', profile);
+    this.logger.debug(
+      `intent captured lead=${signal.leadId} channel=${signal.channel} score=${profile.score.toFixed(2)}`,
+    );
+    return profile;
   }
 
-  async captureBatch(inputs: IntentSignalInput[]): Promise<IntentSignal[]> {
-    const captured: IntentSignal[] = [];
-    for (const input of inputs) {
-      try {
-        captured.push(await this.captureSignal(input));
-      } catch (err) {
-        this.logger.warn(`Failed to capture signal for lead ${input.leadId}: ${(err as Error).message}`);
-      }
+  /**
+   * Captura em lote, útil ao importar histórico do CRM.
+   */
+  async captureBatch(signals: IntentSignal[]): Promise<IntentProfile[]> {
+    const profiles: IntentProfile[] = [];
+    for (const s of signals) {
+      profiles.push(await this.capture(s));
     }
-    return captured;
+    return profiles;
   }
 
-  buildProfile(leadId: string): LeadIntentProfile {
-    const list = this.signals.get(leadId) ?? [];
+  /**
+   * Recupera perfil cacheado ou recomputa on-demand.
+   */
+  getProfile(leadId: string): IntentProfile {
+    const cached = this.profileCache.get(leadId);
+    if (cached) return cached;
+    const profile = this.computeProfile(leadId);
+    this.profileCache.set(leadId, profile);
+    return profile;
+  }
+
+  /**
+   * Lista top N leads por score para alimentar dashboards.
+   */
+  topLeads(limit = 20): IntentProfile[] {
+    return Array.from(this.profileCache.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+
+  /** Limpa dados de um lead (LGPD / opt-out). */
+  purge(leadId: string): void {
+    this.signalsByLead.delete(leadId);
+    this.profileCache.delete(leadId);
+    this.emitter.emit('intent.profile.purged', { leadId });
+  }
+
+  /** Reage a enriquecimento externo invalidando o cache. */
+  @OnEvent('lead.enriched')
+  handleLeadEnriched(payload: { leadId: string }): void {
+    const profile = this.computeProfile(payload.leadId);
+    this.profileCache.set(payload.leadId, profile);
+    this.emitter.emit('intent.profile.updated', profile);
+  }
+
+  // ------------------------- core math -------------------------
+
+  private computeProfile(leadId: string): IntentProfile {
+    const signals = this.signalsByLead.get(leadId) ?? [];
     const now = new Date();
 
+    if (signals.length === 0) {
+      return {
+        leadId,
+        score: 0,
+        lastSignalAt: null,
+        topChannels: [],
+        signalCount: 0,
+        decayFactor: 0,
+        computedAt: now,
+      };
+    }
+
+    const channelAgg = new Map<
+      IntentChannel,
+      { weighted: number; lastAt: Date; count: number }
+    >();
+
     let totalScore = 0;
-    let decayAdjustedScore = 0;
-    const typeCounts = new Map<IntentSignal['type'], number>();
-    let topSignalType: IntentSignal['type'] | null = null;
-    let topWeight = -Infinity;
+    let totalDecay = 0;
     let lastSignalAt: Date | null = null;
 
-    for (const signal of list) {
-      totalScore += signal.weight;
-      const decayHours = SIGNAL_DECAY_HOURS[signal.type];
-      const ageHours = (now.getTime() - signal.detectedAt.getTime()) / 36e5;
-      const decayFactor = Math.max(0, 1 - ageHours / decayHours);
-      decayAdjustedScore += signal.weight * decayFactor;
+    for (const s of signals) {
+      const baseWeight = CHANNEL_WEIGHTS[s.channel] ?? 0.3;
+      const halfLife = CHANNEL_HALF_LIFE_HOURS[s.channel] ?? 72;
+      const ageHours =
+        (now.getTime() - s.occurredAt.getTime()) / (1000 * 60 * 60);
+      const decay = Math.pow(0.5, Math.max(0, ageHours) / halfLife);
+      const contribution = baseWeight * decay * (s.weight || 1);
 
-      typeCounts.set(signal.type, (typeCounts.get(signal.type) ?? 0) + 1);
+      totalScore += contribution;
+      totalDecay += decay;
 
-      if (signal.weight > topWeight) {
-        topWeight = signal.weight;
-        topSignalType = signal.type;
+      const agg = channelAgg.get(s.channel) ?? {
+        weighted: 0,
+        lastAt: s.occurredAt,
+        count: 0,
+      };
+      agg.weighted += contribution;
+      agg.count += 1;
+      if (s.occurredAt.getTime() > agg.lastAt.getTime()) {
+        agg.lastAt = s.occurredAt;
       }
+      channelAgg.set(s.channel, agg);
 
-      if (!lastSignalAt || signal.detectedAt > lastSignalAt) {
-        lastSignalAt = signal.detectedAt;
+      if (!lastSignalAt || s.occurredAt.getTime() > lastSignalAt.getTime()) {
+        lastSignalAt = s.occurredAt;
       }
     }
 
-    const urgencyLevel = this.resolveUrgency(decayAdjustedScore);
-    const recommendedAction = this.resolveAction(urgencyLevel, topSignalType);
+    // Normaliza para 0..100 com saturação logística para evitar outliers.
+    const normalized = (1 - Math.exp(-totalScore)) * 100;
+    const decayFactor = totalDecay / signals.length;
+
+    const topChannels = Array.from(channelAgg.entries())
+      .sort((a, b) => b[1].weighted - a[1].weighted)
+      .slice(0, 3)
+      .map(([ch]) => ch);
 
     return {
       leadId,
-      totalScore,
-      signals: list,
-      topSignalType,
-      urgencyLevel,
-      recommendedAction,
-      decayAdjustedScore: Math.round(decayAdjustedScore * 100) / 100,
+      score: Math.round(normalized * 100) / 100,
       lastSignalAt,
+      topChannels,
+      signalCount: signals.length,
+      decayFactor: Math.round(decayFactor * 1000) / 1000,
+      computedAt: now,
     };
-  }
-
-  async getTopLeadsByIntent(limit = 20): Promise<LeadIntentProfile[]> {
-    const profiles: LeadIntentProfile[] = [];
-    for (const leadId of this.signals.keys()) {
-      profiles.push(this.buildProfile(leadId));
-    }
-    profiles.sort((a, b) => b.decayAdjustedScore - a.decayAdjustedScore);
-    return profiles.slice(0, limit);
-  }
-
-  async getCriticalLeads(): Promise<LeadIntentProfile[]> {
-    const all = await this.getTopLeadsByIntent(1000);
-    return all.filter((p) => p.urgencyLevel === 'critical');
-  }
-
-  purgeStaleSignals(olderThanDays = 90): number {
-    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-    let removed = 0;
-    for (const [leadId, list] of this.signals.entries()) {
-      const filtered = list.filter((s) => s.detectedAt >= cutoff);
-      removed += list.length - filtered.length;
-      if (filtered.length === 0) {
-        this.signals.delete(leadId);
-      } else {
-        this.signals.set(leadId, filtered);
-      }
-    }
-    this.logger.log(`Purged ${removed} stale intent signals older than ${olderThanDays} days`);
-    return removed;
-  }
-
-  exportSignals(leadId: string): IntentSignal[] {
-    return [...(this.signals.get(leadId) ?? [])];
-  }
-
-  private resolveUrgency(score: number): LeadIntentProfile['urgencyLevel'] {
-    if (score >= 80) return 'critical';
-    if (score >= 45) return 'high';
-    if (score >= 20) return 'medium';
-    return 'low';
-  }
-
-  private resolveAction(urgency: LeadIntentProfile['urgencyLevel'], top: IntentSignal['type'] | null): string {
-    if (urgency === 'low') return 'nurture:weekly_drip';
-    if (urgency === 'medium') return 'nurture:targeted_sequence';
-    if (urgency === 'critical') {
-      if (top === 'demo_request' || top === 'pricing_visit') return 'sales:call_within_1h';
-      if (top === 'competitor_switch') return 'sales:competitive_playbook';
-      if (top === 'funding_event') return 'sales:timing_pitch_within_24h';
-      return 'sales:priority_outreach';
-    }
-    return 'sales:standard_followup';
-  }
-
-  private generateId(): string {
-    return `sig_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 }
