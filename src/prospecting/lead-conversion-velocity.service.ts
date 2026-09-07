@@ -1,147 +1,143 @@
-import { leadScoringService } from './lead-scoring.service';
-import { leadPrioritizationOrchestrator } from './lead-prioritization-orchestrator.service';
+import { Lead } from './types';
 
-export type PipelineStage = 'cold' | 'engaged' | 'qualified' | 'opportunity' | 'closed_won';
-
-export interface VelocitySignal {
-  leadId: string;
-  currentStage: PipelineStage;
-  stageEnteredAt: Date;
-  previousStageDurationMs?: number;
-  intentScore: number;
-  fitScore: number;
-  engagementFrequency: number;
-  budgetSignal: number;
+interface VelocitySignal {
+  weight: number;
+  detector: (lead: Lead) => boolean;
+  reason: string;
 }
 
-export interface VelocityPrediction {
+interface VelocityReport {
   leadId: string;
-  estimatedHoursToOpportunity: number;
-  probabilityNext72h: number;
-  velocityIndex: number;
-  recommendedAction: 'nurture' | 'accelerate' | 'assign_sdr' | 'close_loop';
-  reasoning: string;
+  score: number;
+  tier: 'ice_cold' | 'warm' | 'hot' | 'on_fire';
+  signals: string[];
+  estimatedTimeToCloseHours: number;
+  priorityRank: number;
+  computedAt: string;
 }
 
-const STAGE_BENCHMARKS: Record<PipelineStage, number> = {
-  cold: 168,
-  engaged: 72,
-  qualified: 48,
-  opportunity: 24,
-  closed_won: 0,
-};
+export class LeadConversionVelocityService {
+  private static readonly ICE_COLD_THRESHOLD = 25;
+  private static readonly WARM_THRESHOLD = 50;
+  private static readonly HOT_THRESHOLD = 75;
 
-class LeadConversionVelocityService {
-  predict(signal: VelocitySignal): VelocityPrediction {
-    const compositeScore = this.computeComposite(signal);
-    const stageBenchmark = STAGE_BENCHMARKS[signal.currentStage] ?? 72;
-    const adjustedHours = Math.max(
-      1,
-      Math.round(stageBenchmark * (1 - compositeScore * 0.6)),
-    );
-    const probability72h = Math.min(
-      1,
-      compositeScore * 0.85 + (signal.engagementFrequency / 20) * 0.15,
-    );
-    const velocityIndex = this.computeVelocityIndex(signal, adjustedHours);
-    const action = this.recommendAction(signal, probability72h, velocityIndex);
+  private readonly signals: VelocitySignal[] = [
+    {
+      weight: 20,
+      detector: (l) => l.recentDemoRequest === true,
+      reason: 'recent_demo_requested',
+    },
+    {
+      weight: 18,
+      detector: (l) => l.visitedPricingPageLast24h === true,
+      reason: 'pricing_page_visit_24h',
+    },
+    {
+      weight: 15,
+      detector: (l) => typeof l.emailOpenRate === 'number' && l.emailOpenRate >= 0.6,
+      reason: 'high_email_engagement',
+    },
+    {
+      weight: 12,
+      detector: (l) => l.repliedToOutreach === true,
+      reason: 'positive_reply_received',
+    },
+    {
+      weight: 10,
+      detector: (l) => typeof l.employeeCount === 'number' && l.employeeCount >= 50 && l.employeeCount <= 500,
+      reason: 'sweet_spot_company_size',
+    },
+    {
+      weight: 10,
+      detector: (l) => typeof l.budgetConfirmed === 'boolean' && l.budgetConfirmed === true,
+      reason: 'budget_already_confirmed',
+    },
+    {
+      weight: 8,
+      detector: (l) => typeof l.decisionMakerRole === 'string' && /c[eo]o|founder|director|head|vp/i.test(l.decisionMakerRole),
+      reason: 'decision_maker_identified',
+    },
+    {
+      weight: 7,
+      detector: (l) => typeof l.competitorMentions === 'number' && l.competitorMentions >= 2,
+      reason: 'evaluating_competitors',
+    },
+    {
+      weight: 5,
+      detector: (l) => l.referralPartner != null && l.referralPartner !== '',
+      reason: 'referred_lead',
+    },
+    {
+      weight: -15,
+      detector: (l) => l.unsubscribed === true,
+      reason: 'unsubscribed_penalty',
+    },
+    {
+      weight: -10,
+      detector: (l) => typeof l.lastContactDaysAgo === 'number' && l.lastContactDaysAgo > 60,
+      reason: 'cold_recency_penalty',
+    },
+  ];
+
+  public analyze(lead: Lead): VelocityReport {
+    if (!lead || !lead.id) {
+      throw new Error('LeadConversionVelocityService: invalid lead payload');
+    }
+
+    const matchedSignals: string[] = [];
+    let rawScore = 0;
+
+    for (const signal of this.signals) {
+      try {
+        if (signal.detector(lead)) {
+          rawScore += signal.weight;
+          matchedSignals.push(signal.reason);
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const score = Math.max(0, Math.min(100, rawScore));
+    const tier = this.classifyTier(score);
+    const estimatedTimeToCloseHours = this.estimateTimeToClose(score, matchedSignals.length);
 
     return {
-      leadId: signal.leadId,
-      estimatedHoursToOpportunity: adjustedHours,
-      probabilityNext72h: Number(probability72h.toFixed(3)),
-      velocityIndex: Number(velocityIndex.toFixed(3)),
-      recommendedAction: action,
-      reasoning: this.buildReasoning(signal, compositeScore, adjustedHours),
+      leadId: lead.id,
+      score,
+      tier,
+      signals: matchedSignals,
+      estimatedTimeToCloseHours,
+      priorityRank: this.computePriorityRank(score, estimatedTimeToCloseHours),
+      computedAt: new Date().toISOString(),
     };
   }
 
-  rank(predictions: VelocityPrediction[]): VelocityPrediction[] {
-    return [...predictions].sort((a, b) => {
-      if (b.probabilityNext72h !== a.probabilityNext72h) {
-        return b.probabilityNext72h - a.probabilityNext72h;
-      }
-      return a.estimatedHoursToOpportunity - b.estimatedHoursToOpportunity;
+  public analyzeBatch(leads: Lead[]): VelocityReport[] {
+    const reports = leads.map((lead) => this.analyze(lead));
+    return reports.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.estimatedTimeToCloseHours - b.estimatedTimeToCloseHours;
     });
   }
 
-  async predictBatch(signals: VelocitySignal[]): Promise<VelocityPrediction[]> {
-    const results = signals.map((s) => this.predict(s));
-    return this.rank(results);
+  private classifyTier(score: number): VelocityReport['tier'] {
+    if (score >= LeadConversionVelocityService.HOT_THRESHOLD) return 'on_fire';
+    if (score >= LeadConversionVelocityService.WARM_THRESHOLD) return 'hot';
+    if (score >= LeadConversionVelocityService.ICE_COLD_THRESHOLD) return 'warm';
+    return 'ice_cold';
   }
 
-  async hydrateFromOrchestrator(
-    leadId: string,
-    intentScore: number,
-    engagementFrequency: number,
-  ): Promise<VelocityPrediction | null> {
-    const scoring = await leadScoringService.scoreLead({
-      leadId,
-      intentScore,
-      engagementFrequency,
-      budgetSignal: 0.5,
-    });
-    const prioritized = await leadPrioritizationOrchestrator.prioritize([
-      { leadId, score: scoring.composite },
-    ]);
-    if (!prioritized[0]) return null;
-
-    return this.predict({
-      leadId,
-      currentStage: 'engaged',
-      stageEnteredAt: new Date(),
-      intentScore,
-      fitScore: scoring.composite,
-      engagementFrequency,
-      budgetSignal: 0.5,
-    });
+  private estimateTimeToClose(score: number, signalCount: number): number {
+    const baseHours = 720 - score * 6;
+    const signalBoost = Math.min(signalCount, 5) * 24;
+    return Math.max(24, baseHours - signalBoost);
   }
 
-  private computeComposite(signal: VelocitySignal): number {
-    const intentWeight = 0.35;
-    const fitWeight = 0.3;
-    const engagementWeight = 0.2;
-    const budgetWeight = 0.15;
-    const normalizedEngagement = Math.min(1, signal.engagementFrequency / 10);
-    return (
-      signal.intentScore * intentWeight +
-      signal.fitScore * fitWeight +
-      normalizedEngagement * engagementWeight +
-      signal.budgetSignal * budgetWeight
-    );
-  }
-
-  private computeVelocityIndex(
-    signal: VelocitySignal,
-    estimatedHours: number,
-  ): number {
-    const stageBenchmark = STAGE_BENCHMARKS[signal.currentStage] ?? 72;
-    const speedRatio = stageBenchmark / Math.max(1, estimatedHours);
-    const stageMultiplier =
-      signal.currentStage === 'qualified' || signal.currentStage === 'engaged'
-        ? 1.15
-        : 1;
-    return Math.min(1.5, speedRatio * stageMultiplier);
-  }
-
-  private recommendAction(
-    signal: VelocitySignal,
-    probability: number,
-    velocityIndex: number,
-  ): VelocityPrediction['recommendedAction'] {
-    if (probability >= 0.75 && velocityIndex >= 1) return 'assign_sdr';
-    if (probability >= 0.55) return 'accelerate';
-    if (signal.intentScore >= 0.6) return 'nurture';
-    return 'close_loop';
-  }
-
-  private buildReasoning(
-    signal: VelocitySignal,
-    composite: number,
-    hours: number,
-  ): string {
-    return `Composite=${composite.toFixed(2)} intent=${signal.intentScore.toFixed(2)} fit=${signal.fitScore.toFixed(2)} stage=${signal.currentStage} ETA=${hours}h`;
+  private computePriorityRank(score: number, etaHours: number): number {
+    const normalizedEta = Math.min(etaHours / 720, 1);
+    return Number((score * 0.7 + (1 - normalizedEta) * 100 * 0.3).toFixed(2));
   }
 }
 
-export const leadConversionVelocityService = new LeadConversionVelocityService();
+export default LeadConversionVelocityService;
