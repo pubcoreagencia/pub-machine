@@ -10,5 +10,5 @@
     "declaration": true,
     "types": ["node"]
   },
-  "include": ["src/signal/**/*", "tests/**/*"]
+  "include": ["src/signal/**/*", "src/audience/**/*", "tests/**/*"]
 }

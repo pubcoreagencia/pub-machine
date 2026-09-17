@@ -21,75 +21,67 @@ O PUB Machine é o **motor de inteligência, prospecção e geração de negóci
 
 ---
 
-## 2. Visão Executiva & Propósito
-
-O PUB Machine opera como um **sistema de inteligência operacional contínua** desenhado em regime de **Closed Loop**:
+## 2. Visão Executiva & Propósito (Closed Loop)
 
 ```
-CAPTURE ──► UNDERSTAND ──► QUALIFY ──► PRIORITIZE ──► CONVERT ──► MEASURE ──► LEARN ──► CAPTURE
+SIGNAL ──► AUDIENCE INTELLIGENCE ──► INTENT ──► LEAD INTELLIGENCE ──► CONVERSION
+  ▲                                                                        │
+  │                                                                        ▼
+CAPTURE  ◄───────────────  LEARN  ◄─────────────  MEASURE  ◄────────────────┘
 ```
 
-O projeto integra a esteira de desenvolvimento autônomo da holding (**PUB DEV LOOP / PDL**), com atuação contínua dos agentes de arquitetura, desenvolvimento, QA e produto.
+> **REGRA DE OURO:**  
+> **RAW SIGNAL ≠ AUDIENCE PROFILE ≠ INTENT ≠ LEAD.**  
+> A presença em uma zona física ou digital não caracteriza imediatamente um lead. Sinais brutos são agregados em perfis comportamentais de audiência; sob evidências consistentes, a `IntentBridge` gera sinais de intenção; e apenas intenções qualificadas alimentam oportunidades comerciais.
 
 ---
 
-## 3. Arquitetura-Alvo (6 Camadas Operacionais)
+## 3. Arquitetura Canônica em 6 Camadas
 
 1. **SIGNAL / CAPTURE INTELLIGENCE (V0 IMPLEMENTADO)**
-   - Captura provider-agnostic de sinais (físicos e digitais).
-   - Contratos para localização e presença (`latitude`, `longitude`, `accuracyMeters`, `confidence`, `provenance`).
-   - Abstração de zonas físicas (círculo via Haversine e polígono via Ray Casting).
-   - Engine determinística de transições: `ENTER`, `INSIDE`, `DWELL_THRESHOLD`, `EXIT`.
-   - Presence Intelligence: primeira/última entrada, frequência, tempo de permanência, número de visitas e recência.
-   - Signal Store desacoplado (`ISignalStore` e `MemorySignalStore`).
-   - Privacy by Design & LGPD: pseudonimização mandatória, validação de consentimento e expurgo via `purge(subjectId)`.
+   - Captura provider-agnostic (GPS, beacons BLE, Wi-Fi, sensores físicos e digitais).
+   - Engine determinística com matemática espacial pura (Haversine e Ray-Casting).
+   - Transições de estado: `ENTER`, `INSIDE`, `DWELL_THRESHOLD`, `EXIT`.
+   - Privacy by Design: identificação estritamente pseudonimizada e bloqueio por consentimento LGPD.
 
-2. **AUDIENCE INTELLIGENCE**
-   - Enriquecimento de dados B2B (firmographics, tecnologias, decisores, porte, faturamento).
-   - Perfil, comportamento, interesses e afinidades contextuais.
-   - Segmentação dinâmica e estágio de awareness/funil.
+2. **AUDIENCE INTELLIGENCE (V0 IMPLEMENTADO)**
+   - Agregação contínua de telemetria em perfis de audiência pseudonimizados (`AudienceProfile`).
+   - Extração de features comportamentais determinísticas: frequência diária, intensidade de dwell, recência e afinidade de zonas.
+   - Metadados mandatórios de inferência: `confidence`, `confidenceBand`, `provenance`, `timestamp` e `version`.
+   - Engine de segmentação declarativa e priorizada (`SegmentationEngine`).
+   - Ponte explícita de intenção (`IntentBridge`) gerando `BridgeIntentSignal` exclusivamente com base em evidências consolidadas.
 
-3. **LEAD INTELLIGENCE**
-   - Enriquecimento contínuo com tolerância a falhas e cache.
-   - Lead scoring com normalização logística.
-   - Agregação de intenção cross-channel com decaimento temporal exponencial (half-life).
-   - Priorização preditiva com modelos de ensemble.
+3. **LEAD INTELLIGENCE (IMPLEMENTADO)**
+   - Scoring transacional com normalização logística (`LeadScoringService`).
+   - Agregação de intenção cross-channel com decaimento exponencial (`LeadIntentSignalsService`).
+   - Enriquecimento B2B multi-provedor (`LeadEnrichmentService`).
 
-4. **CONVERSION INTELLIGENCE**
-   - Previsão de velocidade de conversão (tempo até oportunidade em horas/dias).
-   - Deal probability forecasting (probabilidade de ganho, expected value, risco e concorrência).
-   - Roteamento inteligente de esteiras por SLA (`P0_CRITICAL` a `P4_COLD`).
+4. **CONVERSION INTELLIGENCE (IMPLEMENTADO)**
+   - Previsão de velocidade de conversão (`LeadConversionVelocityService` e `PredictiveDealVelocityService`).
+   - Forecasting determinístico de probabilidade de ganho e expected value (`DealProbabilityForecasting`).
+   - Orquestração de priorização por SLA (`LeadPrioritizationOrchestrator`).
 
-5. **EXECUTION INTELLIGENCE**
-   - Orquestração de ações comerciais e automações multicanal (WhatsApp, e-mail, telefone, LinkedIn).
-   - Handoff para agentes autônomos ou operadores humanos com playbooks dinâmicos.
+5. **EXECUTION INTELLIGENCE (EM ANDAMENTO / ESTRUTURAL)**
+   - Engines de ciclo autônomo vinculados ao PUB DEV LOOP (`architectEngine.ts`, `machine-saas-automation-tech-leadEngine.ts`).
 
-6. **CLOSED LOOP & CONTINUOUS LEARNING**
-   - Retroalimentação automática de resultados (deals ganhos/perdidos).
-   - Calibração bayesiana dinâmica de pesos de intenção e probabilidade.
-   - Ciclos contínuos de otimização autônoma.
+6. **CLOSED LOOP & CONTINUOUS LEARNING (ARQUITETURA-ALVO / EMBRIONÁRIO)**
+   - Calibração dinâmica de pesos com base no desfecho real de negócios.
 
 ---
 
-## 4. Matriz de Auditoria: Legacy Concept vs. Estado Real no PUB Machine
+## 4. Matriz de Auditoria e Status Técnico
 
-| Legacy Concept (PUB Server) | PUB Machine Component | Status Real no Repo | Evidência / Arquivos | Gap / Ação Futura |
-| :--- | :--- | :--- | :--- | :--- |
-| **Sinais de Localização / Presença Física** | `SignalCaptureService`, `GeofenceEngine` | **IMPLEMENTADO (V0)** | `src/signal/` (testes 100% verdes) | Conectores de hardware físico real e adapters de banco persistente (Postgres/Redis). |
-| **Sinais de Intenção Digital** | `LeadIntentSignalsService` | **IMPLEMENTADO** | `src/prospecting/lead-intent-signals.service.ts` | Persistir buffer in-memory em banco relacional/Redis; conectar webhooks em tempo real. |
-| **Enriquecimento B2B / Audiência** | `LeadEnrichmentService` | **IMPLEMENTADO** | `src/prospecting/lead-enrichment.service.ts` | Conectar provedores reais (Clearbit, Apollo, CNPJ) além da interface. |
-| **Scoring de Interações** | `LeadScoringService` | **IMPLEMENTADO** | `src/prospecting/lead-scoring.service.ts` | Adicionar pesos dinâmicos por tenant/campanha. |
-| **Previsão de Velocidade de Conversão** | `LeadConversionVelocityService` & `PredictiveDealVelocityService` | **IMPLEMENTADO** | `src/prospecting/lead-conversion-velocity.service.ts` e `predictive-deal-velocity.service.ts` | Conectar histórico real de deals fechados para ajuste fino de parâmetros. |
-| **Orquestração e Priorização** | `LeadPrioritizationOrchestrator` | **IMPLEMENTADO** | `src/prospecting/lead-prioritization-orchestrator.service.ts` | Conectar filas de despacho assíncrono (BullMQ/RabbitMQ). |
-| **Forecasting de Deal / Win Probability** | `DealProbabilityForecasting` | **IMPLEMENTADO** | `src/prospecting/deal-probability-forecasting.service.ts` | Conectar telemetria direta do CRM para auto-calibração. |
-| **Execução Autônoma** | `AutonomousExecutionEngines` | **IMPLEMENTADO (ESTRUTURAL)** | `src/autonomous/architectEngine.ts`, `machine-saas-automation-tech-leadEngine.ts` | Expandir rotinas de orquestração multicanal e integração com PUB Neural. |
+| Camada / Componente | Status Real | Evidência no Repositório | Gaps Restantes |
+| :--- | :--- | :--- | :--- |
+| **Camada 1: Signal / Capture Intelligence** | `IMPLEMENTADO (V0)` | `src/signal/` (11 testes verdes) | Conectores de hardware BLE e adapters persistentes em banco. |
+| **Camada 2: Audience Intelligence** | `IMPLEMENTADO (V0)` | `src/audience/` (6 testes verdes) | Adaptador de persistência relacional/Redis para produção. |
+| **Camada 3: Lead Intelligence** | `IMPLEMENTADO` | `src/prospecting/` | Conectar conectores externos reais nas interfaces de enriquecimento. |
+| **Camada 4: Conversion Intelligence** | `IMPLEMENTADO` | `src/prospecting/` | Filas assíncronas para despacho de oportunidades. |
+| **Camada 5: Execution Intelligence** | `IMPLEMENTADO (ESTRUTURAL)`| `src/autonomous/` | Integradores nativos de mensageria comercial. |
+| **Camada 6: Closed Loop Learner** | `ARQUITETURA-ALVO` | Modelagem teórica | Calibração bayesiana automática de parâmetros. |
 
 ---
 
-## 5. Diretrizes de Governança & Engenharia
-1. **Zero Fake Work:** Todas as funcionalidades declaradas possuem código fonte e suíte de testes unitários automatizados.
-2. **Sem Forks Conceituais:** Nenhuma menção ou iniciativa de repositório autônomo `pub-server`.
-3. **PUB Git Closure Rule:** Ciclo rigoroso `IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`.
-4. **Documentos Arquiteturais Complementares:**
-   - [docs/ARCHITECTURE_UNIFICATION.md](./docs/ARCHITECTURE_UNIFICATION.md)
-   - [docs/SIGNAL_INTELLIGENCE.md](./docs/SIGNAL_INTELLIGENCE.md)
+## 5. Diretrizes de Governança
+- **Zero Fake Work:** Toda funcionalidade declarada implementada possui código e testes unitários automatizados.
+- **Git Stage Closure:** `IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`.
