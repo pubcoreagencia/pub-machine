@@ -13,5 +13,5 @@
     "emitDecoratorMetadata": true,
     "types": ["node"]
   },
-  "include": ["src/signal/**/*", "src/audience/**/*", "tests/**/*"]
+  "include": ["src/signal/**/*", "src/audience/**/*", "src/decision/**/*", "tests/**/*"]
 }
