@@ -23,7 +23,7 @@ O PUB Machine é o **motor de inteligência, prospecção e geração de negóci
 
 ## 2. Visão Executiva & Propósito
 
-O PUB Machine não é concebido meramente como um CRM passivo ou um script de pontuação de leads. Trata-se de um **sistema de inteligência operacional contínua** desenhado em regime de **Closed Loop**:
+O PUB Machine opera como um **sistema de inteligência operacional contínua** desenhado em regime de **Closed Loop**:
 
 ```
 CAPTURE ──► UNDERSTAND ──► QUALIFY ──► PRIORITIZE ──► CONVERT ──► MEASURE ──► LEARN ──► CAPTURE
@@ -35,41 +35,38 @@ O projeto integra a esteira de desenvolvimento autônomo da holding (**PUB DEV L
 
 ## 3. Arquitetura-Alvo (6 Camadas Operacionais)
 
-1. **SIGNAL / CAPTURE INTELLIGENCE**
-   - Captura de sinais do mundo físico e digital.
-   - Localização/geolocalização quando tecnicamente e legalmente disponível (latitude, longitude, precisão).
-   - Zonas de interesse e geofencing (entrada, permanência e saída).
-   - Frequência, recorrência e eventos comportamentais.
-   - Identificação pseudonimizada na borda e proveniência/confiança do sinal.
-   - Consentimento explícito e controles estritos de privacidade (LGPD).
+1. **SIGNAL / CAPTURE INTELLIGENCE (V0 IMPLEMENTADO)**
+   - Captura provider-agnostic de sinais (físicos e digitais).
+   - Contratos para localização e presença (`latitude`, `longitude`, `accuracyMeters`, `confidence`, `provenance`).
+   - Abstração de zonas físicas (círculo via Haversine e polígono via Ray Casting).
+   - Engine determinística de transições: `ENTER`, `INSIDE`, `DWELL_THRESHOLD`, `EXIT`.
+   - Presence Intelligence: primeira/última entrada, frequência, tempo de permanência, número de visitas e recência.
+   - Signal Store desacoplado (`ISignalStore` e `MemorySignalStore`).
+   - Privacy by Design & LGPD: pseudonimização mandatória, validação de consentimento e expurgo via `purge(subjectId)`.
 
 2. **AUDIENCE INTELLIGENCE**
-   - Enriquecimento de dados (firmographics, tecnologias, decisores, porte, faturamento).
+   - Enriquecimento de dados B2B (firmographics, tecnologias, decisores, porte, faturamento).
    - Perfil, comportamento, interesses e afinidades contextuais.
    - Segmentação dinâmica e estágio de awareness/funil.
-   - Sinais de intenção, score consolidado e confiança.
 
 3. **LEAD INTELLIGENCE**
-   - Enriquecimento contínuo de leads com cache e tolerância a falhas.
-   - Lead scoring multi-evento com normalização logística.
-   - Agregação de sinais de intenção cross-channel com decaimento temporal exponencial (half-life).
+   - Enriquecimento contínuo com tolerância a falhas e cache.
+   - Lead scoring com normalização logística.
+   - Agregação de intenção cross-channel com decaimento temporal exponencial (half-life).
    - Priorização preditiva com modelos de ensemble.
 
 4. **CONVERSION INTELLIGENCE**
-   - Prospecção e qualificação algorítmica.
-   - Previsão de velocidade de conversão (tempo estimado até oportunidade em horas/dias).
-   - Deal probability forecasting (probabilidade de ganho, expected value, mitigação de risco e concorrência).
+   - Previsão de velocidade de conversão (tempo até oportunidade em horas/dias).
+   - Deal probability forecasting (probabilidade de ganho, expected value, risco e concorrência).
    - Roteamento inteligente de esteiras por SLA (`P0_CRITICAL` a `P4_COLD`).
 
 5. **EXECUTION INTELLIGENCE**
    - Orquestração de ações comerciais e automações multicanal (WhatsApp, e-mail, telefone, LinkedIn).
-   - Geração de copy e abordagem personalizada (integração com PUB Neural).
    - Handoff para agentes autônomos ou operadores humanos com playbooks dinâmicos.
-   - Registro estruturado de interações e touchpoints.
 
 6. **CLOSED LOOP & CONTINUOUS LEARNING**
    - Retroalimentação automática de resultados (deals ganhos/perdidos).
-   - Calibração bayesiana e dinâmica de pesos de intenção e probabilidade.
+   - Calibração bayesiana dinâmica de pesos de intenção e probabilidade.
    - Ciclos contínuos de otimização autônoma.
 
 ---
@@ -78,9 +75,9 @@ O projeto integra a esteira de desenvolvimento autônomo da holding (**PUB DEV L
 
 | Legacy Concept (PUB Server) | PUB Machine Component | Status Real no Repo | Evidência / Arquivos | Gap / Ação Futura |
 | :--- | :--- | :--- | :--- | :--- |
-| **Sinais de Localização / Presença Física** | `SignalCaptureService` | **ARQUITETURA-ALVO (GAP)** | Nenhuma linha de código ou commit histórico no repositório. | Ingestão de GPS, cálculo de geofence/polígonos, métricas de permanência e gestão de consentimento LGPD. |
+| **Sinais de Localização / Presença Física** | `SignalCaptureService`, `GeofenceEngine` | **IMPLEMENTADO (V0)** | `src/signal/` (testes 100% verdes) | Conectores de hardware físico real e adapters de banco persistente (Postgres/Redis). |
 | **Sinais de Intenção Digital** | `LeadIntentSignalsService` | **IMPLEMENTADO** | `src/prospecting/lead-intent-signals.service.ts` | Persistir buffer in-memory em banco relacional/Redis; conectar webhooks em tempo real. |
-| **Enriquecimento B2B / Audiência** | `LeadEnrichmentService` | **IMPLEMENTADO** | `src/prospecting/lead-enrichment.service.ts` | Implementar provedores externos reais (Clearbit, Apollo, CNPJ) além da interface. |
+| **Enriquecimento B2B / Audiência** | `LeadEnrichmentService` | **IMPLEMENTADO** | `src/prospecting/lead-enrichment.service.ts` | Conectar provedores reais (Clearbit, Apollo, CNPJ) além da interface. |
 | **Scoring de Interações** | `LeadScoringService` | **IMPLEMENTADO** | `src/prospecting/lead-scoring.service.ts` | Adicionar pesos dinâmicos por tenant/campanha. |
 | **Previsão de Velocidade de Conversão** | `LeadConversionVelocityService` & `PredictiveDealVelocityService` | **IMPLEMENTADO** | `src/prospecting/lead-conversion-velocity.service.ts` e `predictive-deal-velocity.service.ts` | Conectar histórico real de deals fechados para ajuste fino de parâmetros. |
 | **Orquestração e Priorização** | `LeadPrioritizationOrchestrator` | **IMPLEMENTADO** | `src/prospecting/lead-prioritization-orchestrator.service.ts` | Conectar filas de despacho assíncrono (BullMQ/RabbitMQ). |
@@ -90,7 +87,9 @@ O projeto integra a esteira de desenvolvimento autônomo da holding (**PUB DEV L
 ---
 
 ## 5. Diretrizes de Governança & Engenharia
-1. **Zero Fake Work:** Somente o código comprovado é declarado IMPLEMENTADO. Sinais físicos de GPS e geolocalização permanecem categorizados como ARQUITETURA-ALVO / GAP até desenvolvimento e homologação completos com testes.
+1. **Zero Fake Work:** Todas as funcionalidades declaradas possuem código fonte e suíte de testes unitários automatizados.
 2. **Sem Forks Conceituais:** Nenhuma menção ou iniciativa de repositório autônomo `pub-server`.
-3. **PUB Git Closure Rule:** Qualquer avanço deve seguir: `IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`.
-4. **Documento Arquitetural Completo:** Consulte [docs/ARCHITECTURE_UNIFICATION.md](./docs/ARCHITECTURE_UNIFICATION.md).
+3. **PUB Git Closure Rule:** Ciclo rigoroso `IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`.
+4. **Documentos Arquiteturais Complementares:**
+   - [docs/ARCHITECTURE_UNIFICATION.md](./docs/ARCHITECTURE_UNIFICATION.md)
+   - [docs/SIGNAL_INTELLIGENCE.md](./docs/SIGNAL_INTELLIGENCE.md)

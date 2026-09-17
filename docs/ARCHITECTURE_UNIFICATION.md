@@ -15,7 +15,7 @@
 
 ### 1.2 Princípios Vinculantes
 1. **PUB Server não é um segundo produto:** É a linhagem conceitual do PUB Machine.
-2. **PUB Machine é o produto canônico:** Motor de inteligência, prospecção e geração de negócios da PUB Core Holding.
+2. **PUB Machine é o produto canônico:** Motor de inteligência operacional, prospecção e geração de negócios da PUB Core Holding.
 3. **Sem bifurcações (No Forks):** Proibida a criação de repositórios paralelos (`pub-server`), duplicação de microsserviços ou forks conceituais.
 4. **Preservação de Histórico:** O histórico conceitual é respeitado e documentado como ancestral direto, integrando organicamente toda a visão ao PUB Machine.
 5. **Zero Fake Work & Integridade da Auditoria:** Declarar como **IMPLEMENTADO** exclusivamente o que o código-fonte e o histórico Git comprovam. As capacidades concebidas ainda não codificadas são categorizadas estritamente como **ARQUITETURA-ALVO / GAP**.
@@ -37,7 +37,7 @@ O PUB Machine não é concebido como um CRM passivo ou mero calculador de lead s
 └────────────────────────────────────────────────────────┘
 ```
 
-1. **CAPTURE (Signal / Capture Intelligence):** Captação de sinais físicos e digitais com proveniência e consentimento.
+1. **CAPTURE (Signal / Capture Intelligence):** Captação de sinais físicos (geolocalização, geofence, beacons) e digitais (web, intenção, e-mail) com proveniência e consentimento.
 2. **UNDERSTAND (Audience Intelligence):** Enriquecimento contextual, decodificação de perfil, interesses e awareness.
 3. **QUALIFY (Lead Intelligence):** Scoring ponderado, intenção cross-channel, decaimento temporal e ICP fit.
 4. **PRIORITIZE (Opportunity Intelligence):** Ensemble scoring, previsão de velocidade e esteiras de SLA.
@@ -47,13 +47,13 @@ O PUB Machine não é concebido como um CRM passivo ou mero calculador de lead s
 
 ---
 
-## 3. Matriz Arquitetural de Unificação
+## 3. Matriz Arquitetural de Unificação & Status
 
 Abaixo está o mapeamento exaustivo entre o conceito herdado de "PUB Server", os componentes correspondentes no **PUB Machine**, o status real auditado no código e os gaps técnicos identificados.
 
-| Legacy Concept (PUB Server) | PUB Machine Component | Status Atual | Evidência no Código / Histórico | Gaps Técnicos Identificados |
+| Legacy Concept (PUB Server) | PUB Machine Component | Status Atual | Evidência no Código / Testes | Gaps Técnicos Restantes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Sinais de Localização / Presença Física** | `SignalCaptureService` / `GeoSignalService` | **ARQUITETURA-ALVO (GAP TOTAL)** | Nenhuma evidência de código de GPS, geofence ou presença física no repositório. | Ausência de ingestores de latitude/longitude, cálculo de polígonos/geofencing, detecção de dwell time (permanência/entrada/saída) e telemetria de sensores físicos. |
+| **Sinais de Localização / Presença Física** | `SignalCaptureService`, `GeofenceEngine`, `PresenceIntelligenceService` (`src/signal/`) | **IMPLEMENTADO (V0)** | Motor determinístico de Geofence (Haversine + Ray Casting), transições ENTER/INSIDE/DWELL/EXIT, cálculo de permanência e testes 100% verdes (`tests/signal-capture.test.ts`). | Adapters de produção de persistência (Redis / Postgres) e conectores de hardware físico real (antenas BLE / Mobile SDK push). |
 | **Sinais de Intenção Digital Multi-Canal** | `LeadIntentSignalsService` (`src/prospecting/lead-intent-signals.service.ts`) | **IMPLEMENTADO** | Modelagem de canais (`IntentChannel`: pricing page, demo, competitor mention, hiring, email, linkedin, webinars), agregação por half-life e decaimento temporal exponencial (`Math.pow(0.5, age/halfLife)`), saturação logística (`1 - exp(-score)`). | Persistência plugada em Redis/Postgres (atualmente buffer in-memory e cache Map); ingestão de webhook em tempo real. |
 | **Enriquecimento B2B & Perfil de Audiência** | `LeadEnrichmentService` (`src/prospecting/lead-enrichment.service.ts`) | **IMPLEMENTADO** | Orquestração multi-provider (`EnrichmentProvider`), cache in-flight com TTL, identificação de tomador de decisão (seniority/C-level), tecnologias, faturamento e porte. | Conectar conectores reais (Clearbit, Apollo, Hunter, Receita Federal) além das interfaces; enriquecimento de pessoa física (B2C) e consentimento LGPD granular. |
 | **Scoring Transacional & Interações** | `LeadScoringService` (`src/prospecting/lead-scoring.service.ts`) | **IMPLEMENTADO** | Cálculo de pontos por evento (`emailOpen`, `emailClick`, `websiteVisit`, `formSubmit`, `purchase`), teto logístico em 100 pontos. | Adicionar pesos dinâmicos configuráveis por tenant/campanha via banco e granularidade temporal. |
@@ -65,64 +65,22 @@ Abaixo está o mapeamento exaustivo entre o conceito herdado de "PUB Server", os
 
 ---
 
-## 4. Detalhamento dos Gaps: Camada 1 (Signal / Capture Intelligence)
+## 4. Camada 1: Signal / Capture Intelligence V0 (Implementação)
 
-A auditoria forense do repositório `pubcoreagencia/pub-machine` ratificou com precisão: **não existe implementação histórica de telemetria física ou geolocalização no repositório**.
+A fundação do subsistema de captura e inteligência de sinais foi implementada com sucesso no pacote `src/signal/`:
 
-Para transformar a visão conceitual do antigo PUB Server em realidade técnica dentro do PUB Machine, os seguintes módulos deverão ser arquitetados e implementados nas fases correspondentes:
+1. **Contratos Canônicos Provider-Agnostic (`geo-signal.types.ts`):** `GeoSignal`, `SignalProvenance`, `PhysicalZone`, `GeofenceEvent` e `PresenceMetrics`.
+2. **Matemática Espacial Pura (`geo-math.ts`):** Distância geodésica exata via fórmula de Haversine e algoritmo Ray Casting para polígonos arbitrários.
+3. **Engine Determinística (`geofence-engine.ts`):** Emissão determinística de `ENTER`, `INSIDE`, `DWELL_THRESHOLD` e `EXIT` com descarte de baixa acurácia.
+4. **Inteligência de Presença (`presence-intelligence.service.ts`):** Métricas consolidadas de visitas, recência, frequência e permanência média.
+5. **Persistência Desacoplada (`signal-store.ts`):** Interface `ISignalStore` e implementação `MemorySignalStore` para testes isolados.
+6. **Privacidade e LGPD:** Bloqueio mandatório de sinais sem consentimento (`CONSENT_REQUIRED_OR_NOT_GRANTED`) e rotina irrevogável de expurgo via `purgeSubject(subjectId)`.
 
-### 4.1 Geo & Physical Signal Specification
-1. **Schema de Sinal Físico:**
-   - Coordenadas geográficas (`latitude`, `longitude`, `accuracy_meters`, `altitude`).
-   - Identificadores de sinal pseudonimizados (`beacon_id`, `wifi_bssid_hash`, `device_ephemeral_token`).
-   - Timestamp de captura com fuso horário e confiança da fonte (`confidence_score: 0..1`).
-2. **Geofencing & Polygon Engine:**
-   - Definição de zonas de interesse comercial (raios circulares e polígonos geoespaciais GeoJSON).
-   - Detecção de transição de estado: `ENTER`, `INSIDE`, `DWELL_THRESHOLD_REACHED`, `EXIT`.
-   - Métricas de permanência: tempo de residência contínuo, frequência de retorno e recência de visita.
-3. **Privacidade e Compliance Legal (LGPD / GDPR):**
-   - Consentimento explícito verificado (`opt_in_timestamp`, `purpose_id`, `legal_basis`).
-   - Anonimização/pseudonimização obrigatória na borda (hashing de identificadores de hardware).
-   - Purga e direito ao esquecimento (`purge(identifier)`), padrão já estabelecido no `LeadIntentSignalsService`.
+Consulte [docs/SIGNAL_INTELLIGENCE.md](./SIGNAL_INTELLIGENCE.md) para a especificação técnica detalhada.
 
 ---
 
-## 5. Arquitetura Canônica das 6 Camadas do PUB Machine
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                                PUB MACHINE                                │
-├───────────────────────────────────────────────────────────────────────────┤
-│ 1. SIGNAL / CAPTURE INTELLIGENCE                                          │
-│    - Digital Signals: Web, Pricing, Email, Social, Hiring (IMPLEMENTADO)  │
-│    - Physical Signals: Geo, Coordinates, Geofence, Dwell (ARQUITETURA-ALVO)│
-├───────────────────────────────────────────────────────────────────────────┤
-│ 2. AUDIENCE INTELLIGENCE                                                  │
-│    - Multi-provider enrichment, Firmographics, Tech stack (IMPLEMENTADO) │
-│    - ICP scoring, Persona segmentation, Awareness stage (IMPLEMENTADO)    │
-├───────────────────────────────────────────────────────────────────────────┤
-│ 3. LEAD INTELLIGENCE                                                      │
-│    - Interaction Scoring (0-100), Thresholds (IMPLEMENTADO)               │
-│    - Cross-channel temporal decay, Half-life normalization (IMPLEMENTADO) │
-├───────────────────────────────────────────────────────────────────────────┤
-│ 4. CONVERSION INTELLIGENCE                                                │
-│    - Predictive velocity, Time-to-opportunity (IMPLEMENTADO)              │
-│    - Deal win-probability forecasting, Expected value (IMPLEMENTADO)      │
-│    - Lead prioritization orchestrator, SLA & Band routing (IMPLEMENTADO)  │
-├───────────────────────────────────────────────────────────────────────────┤
-│ 5. EXECUTION INTELLIGENCE                                                 │
-│    - Autonomous process engines, PDL integration (IMPLEMENTADO)           │
-│    - Channel connectors (WhatsApp, Email, CRM queues) (ARQUITETURA-ALVO)   │
-├───────────────────────────────────────────────────────────────────────────┤
-│ 6. CLOSED LOOP & CONTINUOUS LEARNING                                      │
-│    - Feedback de conversão para calibração de pesos (ARQUITETURA-ALVO)     │
-│    - Autonomous optimization cycles (IMPLEMENTADO)                         │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 6. Diretrizes para Engenharia & PRs Futuras
-1. **Nomenclatura Única:** Qualquer referência a "PUB Server" em novos códigos, rotas, variáveis ou documentações é terminantemente proibida. O único nome aceito é `PUB Machine` (e o identificador `pub-machine`).
-2. **Proibições de Mock Especulativo:** Nenhuma funcionalidade de GPS ou geofencing deve ser commitada como mock superficial sem arquitetura de ingestão e testes unitários reais.
+## 5. Diretrizes para Engenharia & PRs Futuras
+1. **Nomenclatura Única:** O único nome canônico é `PUB Machine` (`pub-machine`).
+2. **Integração Progressiva:** As camadas subsequentes (Audience, Lead, Conversion) consumirão a inteligência derivada de presença calculada pela Camada 1.
 3. **Padrão de Fechamento de Etapa:** Seguir estritamente a `PUB_GIT_CLOSURE_RULE.md` (`IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`).

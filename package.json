@@ -1,0 +1,31 @@
+{
+  "name": "@pubcore/pub-machine",
+  "version": "0.1.0",
+  "description": "PUB Machine — Motor de inteligência operacional, prospecção e geração de negócios da PUB Core Holding",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/signal-capture.test.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pubcoreagencia/pub-machine.git"
+  },
+  "keywords": [
+    "pub-machine",
+    "pub-core",
+    "signal-intelligence",
+    "presence-intelligence",
+    "geofence",
+    "closed-loop"
+  ],
+  "author": "PUB Core Holding",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.8.2"
+  }
+}
