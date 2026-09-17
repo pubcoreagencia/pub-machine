@@ -16,7 +16,8 @@ export type IntentChannel =
   | 'linkedin_engagement'
   | 'competitor_mention'
   | 'funding_announcement'
-  | 'hiring_signal';
+  | 'hiring_signal'
+  | 'physical';
 
 export interface IntentSignal {
   leadId: string;
@@ -44,6 +45,7 @@ const CHANNEL_WEIGHTS: Record<IntentChannel, number> = {
   pricing_page_view: 0.9,
   competitor_mention: 0.85,
   funding_announcement: 0.8,
+  physical: 0.75, // Peso calibrado para evidências de presença física consistente
   email_click: 0.6,
   website_visit: 0.45,
   content_download: 0.55,
@@ -62,6 +64,7 @@ const CHANNEL_HALF_LIFE_HOURS: Partial<Record<IntentChannel, number>> = {
   pricing_page_view: 96,
   competitor_mention: 240, // 10 dias
   funding_announcement: 720, // 30 dias
+  physical: 72, // 3 dias de half-life para presença física
   email_click: 72,
   website_visit: 24,
   content_download: 120,

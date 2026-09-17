@@ -24,15 +24,15 @@ O PUB Machine é o **motor de inteligência, prospecção e geração de negóci
 ## 2. Visão Executiva & Propósito (Closed Loop)
 
 ```
-SIGNAL ──► AUDIENCE INTELLIGENCE ──► INTENT ──► LEAD INTELLIGENCE ──► CONVERSION
-  ▲                                                                        │
-  │                                                                        ▼
-CAPTURE  ◄───────────────  LEARN  ◄─────────────  MEASURE  ◄────────────────┘
+RAW SIGNAL ──► AUDIENCE PROFILE ──► INTENT BRIDGE ──► LEAD INTENT ──► LEAD SCORING ──► CONVERSION
+    ▲                                                                                     │
+    │                                                                                     ▼
+  CAPTURE   ◄───────────────  LEARN  ◄───────────────────────────  MEASURE  ◄──────────────┘
 ```
 
 > **REGRA DE OURO:**  
 > **RAW SIGNAL ≠ AUDIENCE PROFILE ≠ INTENT ≠ LEAD.**  
-> A presença em uma zona física ou digital não caracteriza imediatamente um lead. Sinais brutos são agregados em perfis comportamentais de audiência; sob evidências consistentes, a `IntentBridge` gera sinais de intenção; e apenas intenções qualificadas alimentam oportunidades comerciais.
+> Uma presença em uma zona física é apenas um sinal. Sinais agregados e enriquecidos formam um perfil comportamental de audiência. Evidências empíricas consistentes geram sinais de intenção via `IntentBridge`. O `PhysicalIntentAdapter` conecta essas intenções ao `LeadIntentSignalsService` sem criar um segundo motor de scoring.
 
 ---
 
@@ -47,18 +47,20 @@ CAPTURE  ◄───────────────  LEARN  ◄───�
 2. **AUDIENCE INTELLIGENCE (V0 IMPLEMENTADO)**
    - Agregação contínua de telemetria em perfis de audiência pseudonimizados (`AudienceProfile`).
    - Extração de features comportamentais determinísticas: frequência diária, intensidade de dwell, recência e afinidade de zonas.
-   - Metadados mandatórios de inferência: `confidence`, `confidenceBand`, `provenance`, `timestamp` e `version`.
    - Engine de segmentação declarativa e priorizada (`SegmentationEngine`).
    - Ponte explícita de intenção (`IntentBridge`) gerando `BridgeIntentSignal` exclusivamente com base em evidências consolidadas.
 
-3. **LEAD INTELLIGENCE (IMPLEMENTADO)**
-   - Scoring transacional com normalização logística (`LeadScoringService`).
-   - Agregação de intenção cross-channel com decaimento exponencial (`LeadIntentSignalsService`).
-   - Enriquecimento B2B multi-provedor (`LeadEnrichmentService`).
+3. **PHYSICAL → LEAD INTENT INTEGRATION (V0 IMPLEMENTADO)**
+   - `PhysicalIntentAdapter` conectando sinais da `IntentBridge` ao canal canônico `physical` do `LeadIntentSignalsService`.
+   - Taxonomia unificada: `physical.commercial_hub_high_dwell`, `physical.frequent_engagement`, `physical.zone_affinity`.
+   - Decaimento temporal exponencial com half-life de 72 horas.
+   - Trilha de auditoria completa preservando proveniência e confiança.
 
-4. **CONVERSION INTELLIGENCE (IMPLEMENTADO)**
-   - Previsão de velocidade de conversão (`LeadConversionVelocityService` e `PredictiveDealVelocityService`).
-   - Forecasting determinístico de probabilidade de ganho e expected value (`DealProbabilityForecasting`).
+4. **LEAD & CONVERSION INTELLIGENCE (IMPLEMENTADO)**
+   - Scoring transacional com normalização logística (`LeadScoringService`).
+   - Agregação de intenção cross-channel (digital + físico) (`LeadIntentSignalsService`).
+   - Previsão determinística de velocidade e time-to-opportunity (`LeadConversionVelocityService`).
+   - Forecasting de probabilidade de fechamento e expected value (`DealProbabilityForecasting`).
    - Orquestração de priorização por SLA (`LeadPrioritizationOrchestrator`).
 
 5. **EXECUTION INTELLIGENCE (EM ANDAMENTO / ESTRUTURAL)**
@@ -75,13 +77,13 @@ CAPTURE  ◄───────────────  LEARN  ◄───�
 | :--- | :--- | :--- | :--- |
 | **Camada 1: Signal / Capture Intelligence** | `IMPLEMENTADO (V0)` | `src/signal/` (11 testes verdes) | Conectores de hardware BLE e adapters persistentes em banco. |
 | **Camada 2: Audience Intelligence** | `IMPLEMENTADO (V0)` | `src/audience/` (6 testes verdes) | Adaptador de persistência relacional/Redis para produção. |
-| **Camada 3: Lead Intelligence** | `IMPLEMENTADO` | `src/prospecting/` | Conectar conectores externos reais nas interfaces de enriquecimento. |
-| **Camada 4: Conversion Intelligence** | `IMPLEMENTADO` | `src/prospecting/` | Filas assíncronas para despacho de oportunidades. |
+| **Integração: Physical → Lead Intent** | `IMPLEMENTADO (V0)` | `src/audience/physical-intent.adapter.ts` (8 testes verdes) | Webhooks em tempo real para cadências de outbound. |
+| **Camada 3 & 4: Lead & Conversion Intelligence** | `IMPLEMENTADO` | `src/prospecting/` | Conectar conectores externos reais nas interfaces de enriquecimento. |
 | **Camada 5: Execution Intelligence** | `IMPLEMENTADO (ESTRUTURAL)`| `src/autonomous/` | Integradores nativos de mensageria comercial. |
 | **Camada 6: Closed Loop Learner** | `ARQUITETURA-ALVO` | Modelagem teórica | Calibração bayesiana automática de parâmetros. |
 
 ---
 
 ## 5. Diretrizes de Governança
-- **Zero Fake Work:** Toda funcionalidade declarada implementada possui código e testes unitários automatizados.
+- **Zero Fake Work:** Toda funcionalidade declarada implementada possui código e testes unitários automatizados (25 testes no total).
 - **Git Stage Closure:** `IMPLEMENT → TEST → COMMIT → PUSH → VERIFY REMOTE → DECLARE CLOSED`.

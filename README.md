@@ -8,15 +8,15 @@ O **PUB Machine** é o motor de inteligência operacional, prospecção e geraç
 
 ---
 
-## 🎯 Pipeline de Inteligência Causal
+## 🎯 Pipeline de Causalidade Canônico
 
 ```
-SIGNAL ──► AUDIENCE INTELLIGENCE ──► INTENT ──► LEAD INTELLIGENCE ──► CONVERSION
+RAW SIGNAL ──► AUDIENCE PROFILE ──► INTENT BRIDGE ──► LEAD INTENT ──► LEAD SCORING ──► CONVERSION
 ```
 
 > **REGRA DE OURO:**  
 > **RAW SIGNAL ≠ AUDIENCE PROFILE ≠ INTENT ≠ LEAD.**  
-> Uma presença em uma zona física é apenas um sinal. Sinais agregados e enriquecidos formam um perfil comportamental de audiência. Evidências empíricas consistentes geram sinais de intenção via `IntentBridge`. Somente intenções qualificadas alimentam o pipeline de leads.
+> Uma presença em uma zona física é apenas um sinal. Sinais agregados formam um perfil comportamental de audiência. Evidências empíricas consistentes geram sinais de intenção via `IntentBridge`. O `PhysicalIntentAdapter` conecta essas intenções ao `LeadIntentSignalsService` sem duplicar o motor de pontuação ou scoring.
 
 ---
 
@@ -27,9 +27,10 @@ PUB MACHINE/
 ├── docs/
 │   ├── ARCHITECTURE_UNIFICATION.md         # Documento canônico completo da unificação
 │   ├── AUDIENCE_INTELLIGENCE.md            # Especificação técnica do Audience Intelligence V0
+│   ├── PHYSICAL_INTENT_INTEGRATION.md      # Especificação da integração Physical -> Lead Intent V0
 │   └── SIGNAL_INTELLIGENCE.md              # Especificação técnica do Signal Capture V0
 ├── src/
-│   ├── audience/                           # Camada 2: Audience Intelligence V0
+│   ├── audience/                           # Camada 2: Audience Intelligence & Adapters
 │   │   ├── audience-profile.store.ts       # Store desacoplado para AudienceProfile
 │   │   ├── audience-signal-aggregator.ts   # Agregador de presença em perfil comportamental
 │   │   ├── audience.types.ts               # Contratos de features, inferências e regras
@@ -37,6 +38,8 @@ PUB MACHINE/
 │   │   ├── index.ts                        # Barrel de exportações públicas de audience
 │   │   ├── intent-bridge.ts                # Ponte explícita Audience -> Sinais de Intenção
 │   │   ├── intent-signal.store.ts          # Store desacoplado para BridgeIntentSignal
+│   │   ├── physical-intent.adapter.ts      # Adaptador BridgeIntentSignal -> LeadIntentSignal
+│   │   ├── physical-intent.types.ts        # Taxonomia e contratos de sinais físicos de intenção
 │   │   └── segmentation-engine.ts          # Motor determinístico de segmentação declarativa
 │   ├── autonomous/                         # Engines de execução e processamento autônomo (PDL)
 │   │   ├── architectEngine.ts
@@ -45,23 +48,28 @@ PUB MACHINE/
 │   │   ├── deal-probability-forecasting.service.ts
 │   │   ├── lead-conversion-velocity.service.ts
 │   │   ├── lead-enrichment.service.ts
-│   │   ├── lead-intent-signals.service.ts
+│   │   ├── lead-intent-signals.service.ts  # Ingestor cross-channel (digital + físico)
 │   │   ├── lead-prioritization-orchestrator.service.ts
 │   │   ├── lead-scoring.service.ts
 │   │   └── predictive-deal-velocity.service.ts
-│   └── signal/                             # Camada 1: Signal / Capture Intelligence V0
-│       ├── geo-math.ts                     # Cálculos geodésicos puros (Haversine & Ray Casting)
-│       ├── geo-signal.types.ts             # Contratos canônicos de sinais, zonas e consentimento
-│       ├── geofence-engine.ts              # Engine determinística de transições de geofence
-│       ├── index.ts                        # Barrel de exportações públicas de signal
-│       ├── presence-intelligence.service.ts# Cálculo de permanência, visitas e recência
-│       ├── signal-capture.service.ts       # Orquestrador com governança LGPD e validação
-│       └── signal-store.ts                 # Contrato ISignalStore e MemorySignalStore
+│   ├── repositories/                       # Contratos de repositório de suporte
+│   │   └── lead.repository.ts
+│   ├── signal/                             # Camada 1: Signal / Capture Intelligence V0
+│   │   ├── geo-math.ts                     # Cálculos geodésicos puros (Haversine & Ray Casting)
+│   │   ├── geo-signal.types.ts             # Contratos canônicos de sinais, zonas e consentimento
+│   │   ├── geofence-engine.ts              # Engine determinística de transições de geofence
+│   │   ├── index.ts                        # Barrel de exportações públicas de signal
+│   │   ├── presence-intelligence.service.ts# Cálculo de permanência, visitas e recência
+│   │   ├── signal-capture.service.ts       # Orquestrador com governança LGPD e validação
+│   │   └── signal-store.ts                 # Contrato ISignalStore e MemorySignalStore
+│   └── types/                              # Tipos base compartilhados
+│       └── lead.types.ts
 ├── tests/
-│   ├── audience-intelligence.test.ts       # Suíte de testes da Camada Audience (6 testes)
-│   └── signal-capture.test.ts              # Suíte de testes da Camada Signal (11 testes)
+│   ├── audience-intelligence.test.ts       # Suíte da Camada Audience (6 testes)
+│   ├── physical-intent-integration.test.ts # Suíte de Integração Physical -> Lead (8 testes)
+│   └── signal-capture.test.ts              # Suíte da Camada Signal (11 testes)
 ├── MASTER_CONTEXT.md                       # Governança canônica, status e matriz de auditoria
-├── package.json                            # Dependências e scripts de teste
+├── package.json                            # Dependências e scripts de teste (npm test)
 ├── PUB_GIT_CLOSURE_RULE.md                 # Regra mandatória de fechamento de estágios Git
 └── README.md                               # Visão geral do produto e arquitetura
 ```
@@ -74,7 +82,8 @@ PUB MACHINE/
 | :--- | :--- | :--- |
 | **Camada 1: Sinais Físicos & Geofence Engine** | `IMPLEMENTADO (V0)` | `src/signal/` (11 testes unitários passando) |
 | **Camada 2: Audience Intelligence & Intent Bridge**| `IMPLEMENTADO (V0)` | `src/audience/` (6 testes unitários passando) |
-| **Camada 3: Sinais Digitais & Scoring de Lead** | `IMPLEMENTADO` | `src/prospecting/` |
+| **Integração: Physical → Lead Intent** | `IMPLEMENTADO (V0)` | `src/audience/physical-intent.adapter.ts` (8 testes passando) |
+| **Camada 3: Sinais Multi-Canal & Scoring de Lead** | `IMPLEMENTADO` | `src/prospecting/` |
 | **Camada 4: Conversão, Velocity & Forecasting** | `IMPLEMENTADO` | `src/prospecting/` |
 | **Camada 5: Execução Autônoma** | `IMPLEMENTADO (ESTRUTURAL)` | `src/autonomous/` |
 | **Camada 6: Closed Loop Feedback** | `ARQUITETURA-ALVO` | Em andamento |
@@ -85,6 +94,7 @@ PUB MACHINE/
 
 - [MASTER_CONTEXT.md](./MASTER_CONTEXT.md)
 - [docs/ARCHITECTURE_UNIFICATION.md](./docs/ARCHITECTURE_UNIFICATION.md)
+- [docs/PHYSICAL_INTENT_INTEGRATION.md](./docs/PHYSICAL_INTENT_INTEGRATION.md)
 - [docs/AUDIENCE_INTELLIGENCE.md](./docs/AUDIENCE_INTELLIGENCE.md)
 - [docs/SIGNAL_INTELLIGENCE.md](./docs/SIGNAL_INTELLIGENCE.md)
 - [PUB_GIT_CLOSURE_RULE.md](./PUB_GIT_CLOSURE_RULE.md)

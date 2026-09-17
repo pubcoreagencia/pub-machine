@@ -9,3 +9,5 @@ export * from './audience-profile.store';
 export * from './intent-signal.store';
 export * from './audience-signal-aggregator';
 export * from './intent-bridge';
+export * from './physical-intent.types';
+export * from './physical-intent.adapter';

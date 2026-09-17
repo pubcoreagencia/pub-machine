@@ -42,7 +42,7 @@ export class LeadScoringService {
     this.logger.log(`Assigned score ${currentScore} to lead ${leadId}`);
   }
 
-  private static readonly SCORE_THRESHOLDS = {
+  private static readonly SCORE_THRESHOLDS: Record<string, number> = {
     emailOpen: 10,
     emailClick: 15,
     websiteVisit: 20,
