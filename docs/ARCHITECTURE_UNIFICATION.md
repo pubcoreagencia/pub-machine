@@ -63,4 +63,5 @@
 * [docs/SIGNAL_INTELLIGENCE.md](./SIGNAL_INTELLIGENCE.md) — Camada 1: Captura e Geofencing determinístico.
 * [docs/AUDIENCE_INTELLIGENCE.md](./AUDIENCE_INTELLIGENCE.md) — Camada 2: Features comportamentais, segmentação e IntentBridge.
 * [docs/PHYSICAL_INTENT_INTEGRATION.md](./PHYSICAL_INTENT_INTEGRATION.md) — Integração: Adapter físico, taxonomia e composição no Lead Intent.
+* [docs/DECISION_DISPATCH.md](./DECISION_DISPATCH.md) — Camada Operacional: Decisão auditável, recomendação de canal e contrato de despacho.
 * [PUB_GIT_CLOSURE_RULE.md](../PUB_GIT_CLOSURE_RULE.md) — Regra mandatória de fechamento de estágios Git.

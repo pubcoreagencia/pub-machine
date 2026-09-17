@@ -10,7 +10,8 @@
     "test:signal": "tsx tests/signal-capture.test.ts",
     "test:audience": "tsx tests/audience-intelligence.test.ts",
     "test:integration": "ts-node --transpile-only tests/physical-intent-integration.test.ts",
-    "test": "tsx tests/signal-capture.test.ts && tsx tests/audience-intelligence.test.ts && ts-node --transpile-only tests/physical-intent-integration.test.ts"
+    "test:decision": "ts-node --transpile-only tests/decision-dispatch.test.ts",
+    "test": "tsx tests/signal-capture.test.ts && tsx tests/audience-intelligence.test.ts && ts-node --transpile-only tests/physical-intent-integration.test.ts && ts-node --transpile-only tests/decision-dispatch.test.ts"
   },
   "repository": {
     "type": "git",
