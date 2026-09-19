@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PUB MACHINE — Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-logo">
+        <span class="brand-logo-icon">⚡</span>
+      </div>
+      <div>
+        <h1 class="brand-title">PUB MACHINE</h1>
+        <span class="brand-subtitle">Motor de Inteligência Operacional</span>
+      </div>
+    </div>
+    <div class="header-center">
+      <div id="header-status-pill" class="header-status-pill idle">
+        <span class="pulse-dot"></span>
+        <span id="header-status-text">INICIALIZANDO</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div id="connection-status" class="status-indicator disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">DESCONECTADO</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-container">
+    <aside class="sidebar-runs">
+      <div class="dispatch-panel">
+        <div class="dispatch-header">
+          <h2>EXECUTAR PIPELINE</h2>
+        </div>
+        <form id="dispatch-form" class="dispatch-form">
+          <div class="form-group">
+            <label for="select-scenario">CENÁRIO DEMO</label>
+            <select id="select-scenario" class="form-control" required>
+              <option value="sp-corretor" selected>🏢 Corretores SP — Visitas recorrentes</option>
+              <option value="rj-fintech">💰 Fintech RJ — Alta permanência</option>
+              <option value="bh-corporate">🏢 Corporativo BH — Enterprise</option>
+              <option value="multi-zone">🌐 Multi-Zona — Jornada completa</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-notes">OBSERVAÇÕES (opcional)</label>
+            <textarea id="input-notes" class="form-control" rows="2" placeholder="Notas adicionais para esta execução..."></textarea>
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="btn-dispatch" class="btn btn-primary btn-block">
+              <span class="btn-text">EXECUTAR PIPELINE COMPLETO</span>
+              <span class="btn-loading hidden">⏳ PROCESSANDO...</span>
+            </button>
+          </div>
+          <div id="dispatch-feedback" class="dispatch-feedback hidden"></div>
+        </form>
+      </div>
+
+      <div class="sidebar-header runs-divider">
+        <h2>EXECUÇÕES RECENTES</h2>
+        <span id="runs-count" class="badge">0</span>
+      </div>
+      <div id="runs-list" class="runs-list">
+        <div class="empty-state">Nenhuma execução. Clique em "Executar Pipeline" para começar.</div>
+      </div>
+    </aside>
+
+    <main class="dashboard-content">
+      <section class="execution-hero-bar">
+        <div class="hero-left">
+          <div class="hero-project-name">
+            <span id="hero-project-title">Aguardando execução...</span>
+            <span id="hero-executor-tag" class="badge-demo-tag" style="background: rgba(0, 242, 254, 0.15); border-color: var(--accent-cyan); color: var(--accent-cyan);">PUB MACHINE V0</span>
+          </div>
+          <div class="hero-subtext">
+            <span>Execução: <strong id="hero-run-id" class="monospace">N/A</strong></span>
+            <span>Cenário: <strong id="hero-scenario" class="monospace">N/A</strong></span>
+            <span>Tempo: <strong id="hero-duration" class="monospace">0.0s</strong></span>
+          </div>
+        </div>
+        <div class="hero-right">
+          <div class="hero-state-banner" id="hero-state-banner">
+            <span class="hero-state-label">ESTADO DO PIPELINE</span>
+            <span id="hero-state-val" class="state-pill idle">IDLE</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="flow-section">
+        <div class="flow-header">
+          <div class="flow-header-title">
+            <h2>FLUXO DO PIPELINE</h2>
+            <span class="flow-subtitle">Causalidade: Sinal → Audiência → Intenção → Lead → Decisão</span>
+          </div>
+          <div class="flow-header-tags">
+            <span id="live-stream-badge" class="live-tag">● AO VIVO</span>
+          </div>
+        </div>
+        <div id="conversation-flow" class="conversation-flow">
+          <div class="flow-empty-state">
+            <div class="empty-icon">⚡</div>
+            <div class="empty-text">Aguardando execução do pipeline...</div>
+            <div class="empty-hint">O pipeline será executado etapa por etapa com visualização em tempo real</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="secondary-collapsible">
+        <details class="tech-details-details" open>
+          <summary class="tech-details-summary">
+            <span>⚙️ VALIDAÇÃO TÉCNICA & MATRIZ DE PIPELINE</span>
+            <span class="summary-arrow">▼</span>
+          </summary>
+          <div class="tech-details-body">
+            <div class="tech-grid">
+              <div class="tech-card">
+                <h4>CAMADAS DO PIPELINE</h4>
+                <div class="matrix-grid">
+                  <div class="matrix-cell">
+                    <span class="matrix-label">SIGNAL INTEL</span>
+                    <span id="val-signal" class="matrix-pill not-available">AGUARDANDO</span>
+                  </div>
+                  <div class="matrix-cell">
+                    <span class="matrix-label">AUDIENCE INTEL</span>
+                    <span id="val-audience" class="matrix-pill not-available">AGUARDANDO</span>
+                  </div>
+                  <div class="matrix-cell">
+                    <span class="matrix-label">INTENT BRIDGE</span>
+                    <span id="val-intent" class="matrix-pill not-available">AGUARDANDO</span>
+                  </div>
+                  <div class="matrix-cell">
+                    <span class="matrix-label">LEAD SCORING</span>
+                    <span id="val-scoring" class="matrix-pill not-available">AGUARDANDO</span>
+                  </div>
+                  <div class="matrix-cell">
+                    <span class="matrix-label">DECISION</span>
+                    <span id="val-decision" class="matrix-pill not-available">AGUARDANDO</span>
+                  </div>
+                </div>
+                <div id="val-details" class="matrix-details">Execute o pipeline para ver validações.</div>
+              </div>
+
+              <div class="tech-card">
+                <h4>MÉTRICAS DA EXECUÇÃO</h4>
+                <div class="tech-field-grid">
+                  <div>
+                    <span class="field-lbl">Sinais Ingeridos:</span>
+                    <span id="metric-signals" class="field-val monospace">0</span>
+                  </div>
+                  <div>
+                    <span class="field-lbl">Zonas Visitadas:</span>
+                    <span id="metric-zones" class="field-val monospace">0</span>
+                  </div>
+                </div>
+                <div class="tech-field-grid">
+                  <div>
+                    <span class="field-lbl">Segmentos Audiência:</span>
+                    <span id="metric-segments" class="field-val monospace">0</span>
+                  </div>
+                  <div>
+                    <span class="field-lbl">Sinais Intenção:</span>
+                    <span id="metric-intents" class="field-val monospace">0</span>
+                  </div>
+                </div>
+                <div class="tech-field-grid">
+                  <div>
+                    <span class="field-lbl">Score Final:</span>
+                    <span id="metric-score" class="field-val monospace">0</span>
+                  </div>
+                  <div>
+                    <span class="field-lbl">Ação Decisão:</span>
+                    <span id="metric-action" class="field-val monospace">N/A</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech-card">
+                <h4>STATUS DO DEPLOY</h4>
+                <div class="tech-field">
+                  <span class="field-lbl">Status:</span>
+                  <span id="deploy-pill" class="matrix-pill pass">PRODUÇÃO</span>
+                </div>
+                <div class="tech-field">
+                  <span class="field-lbl">URL:</span>
+                  <span id="deploy-url" class="field-val monospace text-truncate">carregando...</span>
+                </div>
+                <div class="tech-field-grid">
+                  <div>
+                    <span class="field-lbl">Build:</span>
+                    <span id="deploy-build" class="field-val monospace">sucesso</span>
+                  </div>
+                  <div>
+                    <span class="field-lbl">Runtime:</span>
+                    <span id="deploy-runtime" class="field-val monospace">Cloudflare Pages</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
